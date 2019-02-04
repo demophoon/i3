@@ -957,16 +957,19 @@ bool rec_parse_file(struct variables_head *variables, const char *f, bool use_na
 
         strncpy(buf + strlen(buf), buffer, strlen(buffer) + 1);
 
+        /* #include is special */
+        if (strcasecmp(key, "#include") == 0 && *value != '\0') {
+            DLOG("Including file \"%s\"\n", value);
+            rec_parse_file(variables, value, use_nagbar, load_depth + 1);
+            continue;
+        }
+
         /* Skip comments and empty lines. */
         if (skip_line || comment) {
             continue;
         }
 
-        if (strcasecmp(key, "include") == 0 && *value != '\0') {
-            DLOG("Including file \"%s\" at \"%.*s\"\n", value, (int)strlen(buffer) - 1, buffer);
-            rec_parse_file(variables, value, use_nagbar, load_depth + 1);
-            continue;
-        } else if (strcasecmp(key, "set") == 0 && *value != '\0') {
+        if (strcasecmp(key, "set") == 0 && *value != '\0') {
             char v_key[512];
             char v_value[4096] = {'\0'};
 
