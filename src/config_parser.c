@@ -883,6 +883,22 @@ static char *get_resource(char *name) {
  */
 bool parse_file(const char *f, bool use_nagbar) {
     struct variables_head variables = SLIST_HEAD_INITIALIZER(&variables);
+    bool has_errors = rec_parse_file(&variables, f, use_nagbar, 0);
+
+    struct Variable *current;
+
+    while (!SLIST_EMPTY(&variables)) {
+        current = SLIST_FIRST(&variables);
+        FREE(current->key);
+        FREE(current->value);
+        SLIST_REMOVE_HEAD(&variables, variables);
+        FREE(current);
+    }
+
+    return has_errors;
+}
+
+bool rec_parse_file(struct variables_head *variables, const char *f, bool use_nagbar, int load_depth) {
     int fd;
     struct stat stbuf;
     char *buf;
@@ -899,6 +915,9 @@ bool parse_file(const char *f, bool use_nagbar) {
 
     if ((fstr = fdopen(fd, "r")) == NULL)
         die("Could not fdopen: %s\n", strerror(errno));
+
+    if (load_depth > 10)
+        die("Config Loading exceeded maximum load depth (%d)", load_depth);
 
     FREE(current_config);
     current_config = scalloc(stbuf.st_size + 1, 1);
@@ -943,7 +962,11 @@ bool parse_file(const char *f, bool use_nagbar) {
             continue;
         }
 
-        if (strcasecmp(key, "set") == 0 && *value != '\0') {
+        if (strcasecmp(key, "include") == 0 && *value != '\0') {
+            DLOG("Including file \"%s\" at \"%.*s\"\n", value, (int)strlen(buffer) - 1, buffer);
+            rec_parse_file(variables, value, use_nagbar, load_depth + 1);
+            continue;
+        } else if (strcasecmp(key, "set") == 0 && *value != '\0') {
             char v_key[512];
             char v_value[4096] = {'\0'};
 
@@ -959,7 +982,7 @@ bool parse_file(const char *f, bool use_nagbar) {
                 continue;
             }
 
-            upsert_variable(&variables, v_key, v_value);
+            upsert_variable(variables, v_key, v_value);
             continue;
         } else if (strcasecmp(key, "set_from_resource") == 0) {
             char res_name[512] = {'\0'};
@@ -992,7 +1015,7 @@ bool parse_file(const char *f, bool use_nagbar) {
                 res_value = sstrdup(fallback);
             }
 
-            upsert_variable(&variables, v_key, res_value);
+            upsert_variable(variables, v_key, res_value);
             FREE(res_value);
             continue;
         }
@@ -1013,7 +1036,7 @@ bool parse_file(const char *f, bool use_nagbar) {
      * variables (otherwise we will count them twice, which is bad when
      * 'extra' is negative) */
     char *bufcopy = sstrdup(buf);
-    SLIST_FOREACH(current, &variables, variables) {
+    SLIST_FOREACH(current, variables, variables) {
         int extra = (strlen(current->value) - strlen(current->key));
         char *next;
         for (next = bufcopy;
@@ -1033,11 +1056,11 @@ bool parse_file(const char *f, bool use_nagbar) {
     destwalk = new;
     while (walk < (buf + stbuf.st_size)) {
         /* Find the next variable */
-        SLIST_FOREACH(current, &variables, variables)
+        SLIST_FOREACH(current, variables, variables)
         current->next_match = strcasestr(walk, current->key);
         nearest = NULL;
         int distance = stbuf.st_size;
-        SLIST_FOREACH(current, &variables, variables) {
+        SLIST_FOREACH(current, variables, variables) {
             if (current->next_match == NULL)
                 continue;
             if ((current->next_match - walk) < distance) {
@@ -1112,14 +1135,6 @@ bool parse_file(const char *f, bool use_nagbar) {
     free(context);
     free(new);
     free(buf);
-
-    while (!SLIST_EMPTY(&variables)) {
-        current = SLIST_FIRST(&variables);
-        FREE(current->key);
-        FREE(current->value);
-        SLIST_REMOVE_HEAD(&variables, variables);
-        FREE(current);
-    }
 
     return !has_errors;
 }

@@ -48,3 +48,4 @@ void start_config_error_nagbar(const char *configpath, bool has_errors);
  *
  */
 bool parse_file(const char *f, bool use_nagbar);
+bool rec_parse_file(struct variables_head *variables, const char *f, bool use_nagbar, int load_depth);
